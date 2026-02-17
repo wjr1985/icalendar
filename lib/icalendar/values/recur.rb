@@ -1,11 +1,15 @@
 # frozen_string_literal: true
 
-require 'ostruct'
-
 module Icalendar
   module Values
 
     class Recur < Value
+      RecurFields = Struct.new(:frequency, :until, :count, :interval,
+                               :by_second, :by_minute, :by_hour, :by_day,
+                               :by_month_day, :by_year_day, :by_week_number,
+                               :by_month, :by_set_position, :week_start,
+                               keyword_init: true)
+
       NUM_LIST = '\d{1,2}(?:,\d{1,2})*'
       DAYNAME = 'SU|MO|TU|WE|TH|FR|SA'
       WEEKDAY = "(?:[+-]?\\d{1,2})?(?:#{DAYNAME})"
@@ -16,7 +20,7 @@ module Icalendar
         if value.is_a? Icalendar::Values::Recur
           super value.value, *args
         else
-          super OpenStruct.new(parse_fields value), *args
+          super RecurFields.new(**parse_fields(value)), *args
         end
       end
 
