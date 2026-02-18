@@ -13,7 +13,11 @@ module Icalendar
         Icalendar::Offset::WindowsToIana,
         Icalendar::Offset::ActiveSupportPartial,
         Icalendar::Offset::Null
-      ].lazy.map { |klass| klass.new(tzid, value, timezone_store) }.detect(&:valid?)
+      ].each do |klass|
+        offset = klass.new(tzid, value, timezone_store)
+        return offset if offset.valid?
+      end
+      nil
     end
 
     def initialize(tzid, value, timezone_store)
