@@ -219,6 +219,7 @@ module Icalendar
           end
         end
       end
+      params = Icalendar::DowncasedHash.new(params) unless params.empty?
       # Building the string to send to the logger is expensive.
       # Only do it if the logger is at the right log level.
       if ::Logger::DEBUG >= Icalendar.logger.level
