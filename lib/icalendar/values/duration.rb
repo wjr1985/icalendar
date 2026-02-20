@@ -1,17 +1,16 @@
 # frozen_string_literal: true
 
-require 'ostruct'
-
 module Icalendar
   module Values
 
     class Duration < Value
+      DurationFields = Struct.new(:past, :weeks, :days, :hours, :minutes, :seconds, keyword_init: true)
 
       def initialize(value, *args)
         if value.is_a? Icalendar::Values::Duration
           super value.value, *args
         else
-          super OpenStruct.new(parse_fields value), *args
+          super DurationFields.new(**parse_fields(value)), *args
         end
       end
 

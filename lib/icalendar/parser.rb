@@ -2,6 +2,7 @@
 
 require 'icalendar/timezone_store'
 require 'stringio'
+require 'strscan'
 
 module Icalendar
 
@@ -184,51 +185,64 @@ module Icalendar
       parse_fields line
     end
 
-    NAME = '[-a-zA-Z0-9]+'
-    QSTR = '"[^"]*"'
-    PTEXT = '[^";:,]*'
-    PVALUE = "(?:#{QSTR}|#{PTEXT})"
-    PARAM = "(#{NAME})=(#{PVALUE}(?:,#{PVALUE})*)"
-    VALUE = '.*'
-    LINE = "(?<name>#{NAME})(?<params>(?:;#{PARAM})*):(?<value>#{VALUE})"
-    BAD_LINE = "(?<name>#{NAME})(?<params>(?:;#{PARAM})*)"
-    LINE_REGEX = %r{#{LINE}}.freeze
-    BAD_LINE_REGEX = %r{#{BAD_LINE}}.freeze
-    PARAM_REGEX = %r{#{PARAM}}.freeze
-    PVALUE_REGEX = %r{#{PVALUE}}.freeze
-    PVALUE_GSUB_REGEX = /\A"|"\z/.freeze
+    SCANNER_NAME_REGEX = /[-a-zA-Z0-9]+/.freeze
+    SCANNER_QUOTED_REGEX = /"[^"]*"/.freeze
+    SCANNER_PARAMTEXT_REGEX = /[^";:,]*/.freeze
+    SCANNER_SEMICOLON_REGEX = /;/.freeze
+    SCANNER_EQUALS_REGEX = /=/.freeze
+    SCANNER_COMMA_REGEX = /,/.freeze
+    SCANNER_COLON_REGEX = /:/.freeze
 
     def parse_fields(input)
-      if parts = LINE_REGEX.match(input)
-        value = parts[:value]
+      s = StringScanner.new(input)
+
+      # 1. Property name: iana-token / x-name
+      raw_name = s.scan(SCANNER_NAME_REGEX) or
+        fail(ParseError, "Invalid iCalendar input line: #{input}")
+
+      # 2. Parameters: ;name=value(,value)*
+      params = {}
+      loop do
+        pos = s.pos
+        break unless s.skip(SCANNER_SEMICOLON_REGEX)
+        pn = s.scan(SCANNER_NAME_REGEX)
+        unless pn && s.skip(SCANNER_EQUALS_REGEX)
+          s.pos = pos
+          break
+        end
+        values = (params[pn.downcase] ||= [])
+        loop do
+          if s.peek(1) == '"'
+            qs = s.scan(SCANNER_QUOTED_REGEX)
+            values << qs[1..-2] if qs
+          else
+            pt = s.scan(SCANNER_PARAMTEXT_REGEX)
+            values << pt if pt && !pt.empty?
+          end
+          break unless s.skip(SCANNER_COMMA_REGEX)
+        end
+      end
+
+      # 3. Colon + value
+      if s.skip(SCANNER_COLON_REGEX)
+        value = s.rest
       else
-        parts = BAD_LINE_REGEX.match(input) unless strict?
-        parts or fail ParseError, "Invalid iCalendar input line: #{input}"
-        # Non-strict and bad line so use a value of empty string
+        fail(ParseError, "Invalid iCalendar input line: #{input}") if strict?
         value = ''
       end
 
-      params = {}
-      parts[:params].scan PARAM_REGEX do |match|
-        param_name = match[0].downcase
-        params[param_name] ||= []
-        match[1].scan PVALUE_REGEX do |param_value|
-          if param_value.size > 0
-            param_value = param_value.gsub(PVALUE_GSUB_REGEX, '')
-            params[param_name] << param_value
-          end
-        end
-      end
-      # Building the string to send to the logger is expensive.
-      # Only do it if the logger is at the right log level.
+      params = Icalendar::DowncasedHash.new(params) unless params.empty?
+
       if ::Logger::DEBUG >= Icalendar.logger.level
-        Icalendar.logger.debug "Found fields: #{parts.inspect} with params: #{params.inspect}"
+        Icalendar.logger.debug "Found fields: #{input.inspect} with params: #{params.inspect}"
       end
-      {
-        name: parts[:name].downcase.gsub('-', '_'),
-        params: params,
-        value: value
-      }
+
+      { name: cached_property_name(raw_name), params: params, value: value }
+    end
+
+    def cached_property_name(raw_name)
+      @property_name_cache ||= {}
+      @property_name_cache[raw_name] ||= raw_name.downcase.tr('-', '_').freeze
     end
 
     class ParseError < RuntimeError

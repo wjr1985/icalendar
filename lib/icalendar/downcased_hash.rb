@@ -55,6 +55,10 @@ module Icalendar
       obj.map &block
     end
 
+    def inspect
+      obj.inspect
+    end
+
     def ==(other)
       obj == Icalendar::DowncasedHash(other).obj
     end
